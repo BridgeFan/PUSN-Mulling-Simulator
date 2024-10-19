@@ -1,0 +1,7 @@
+/home/kamil-hp/Pulpit/MKwMG/lib/CMakeFiles/imgui.dir
+/home/kamil-hp/Pulpit/MKwMG/lib/CMakeFiles/edit_cache.dir
+/home/kamil-hp/Pulpit/MKwMG/lib/CMakeFiles/rebuild_cache.dir
+/home/kamil-hp/Pulpit/MKwMG/lib/CMakeFiles/list_install_components.dir
+/home/kamil-hp/Pulpit/MKwMG/lib/CMakeFiles/install.dir
+/home/kamil-hp/Pulpit/MKwMG/lib/CMakeFiles/install/local.dir
+/home/kamil-hp/Pulpit/MKwMG/lib/CMakeFiles/install/strip.dir

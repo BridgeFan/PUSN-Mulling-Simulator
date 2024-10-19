@@ -1,0 +1,18 @@
+{
+	"camera" : 
+	{
+		"distance" : 10.0,
+		"focusPoint" : 
+		{
+			"x" : 0.0,
+			"y" : 0.0,
+			"z" : 0.0
+		},
+		"rotation" : 
+		{
+			"x" : 0.0,
+			"y" : 0.0
+		}
+	},
+	"geometry" : []
+}
