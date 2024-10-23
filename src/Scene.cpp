@@ -346,7 +346,7 @@ void bf::Scene::onMouseMove(const glm::vec2 &oldMousePos, const bf::ConfigState 
 					centre = objectArray[objectArray.getActiveIndex()].getPosition();
 				else
 					centre = cursor.transform.position;*/
-                deltaRotMatrix = rotSpeed*bf::rotationAxisMatrix(camera.getUp(),myVec[0])*bf::rotationAxisMatrix(camera.getRight(),myVec[1])*bf::rotationAxisMatrix(camera.getFront(),myVec[2]);
+                deltaRotMatrix = rotSpeed*bf::rotationAxisMatrix(camera.getUp(),-myVec[0])*bf::rotationAxisMatrix(camera.getRight(),-myVec[1])*bf::rotationAxisMatrix(camera.getFront(),-myVec[2]);
 				bf::Transform rotated = rotateAboutPoint(camera, centre, combineRotations(deltaRotMatrix,glm::mat4(1.f)));
 				camera.position = rotated.position;
 				camera.rotation = rotated.rotation;

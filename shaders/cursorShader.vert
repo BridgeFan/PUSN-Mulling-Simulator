@@ -12,11 +12,11 @@ uniform mat4 projection;
 //unique uniforms
 uniform vec3 color;
 uniform mat4 model;
-uniform float cameraDistance;
+//uniform float cameraDistance;
 
 void main()
 {
-    gl_Position = (projection * view * model * vec4(aPos * cameraDistance, 1.0f));
+    gl_Position = (projection * view * model * vec4(aPos /* cameraDistance*/, 1.0f));
     vertexColor = vec4(color, 1.0);
     normal = aNormal;
     fragPos = gl_Position.xyz;

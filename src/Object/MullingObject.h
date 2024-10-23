@@ -6,19 +6,23 @@
 #define MKWMG_MULLINGOBJECT_H
 #include "Object.h"
 #include "Solids/Solid.h"
+#include "stb_image.h"
 
+#include <bitset>
 #include <map>
 
 namespace bf {
 	enum MullingErrorType: uint_fast8_t {
-		DeepMulling,
-		VerticalMulling,
-		DownFlatMulling,
-		NonCuttingMulling
+		DeepMulling=0,
+		VerticalMulling=1,
+		DownFlatMulling=2,
+		NonCuttingMulling=3
 	};
+	constexpr std::bitset<4> False4{0};
 
 	class MullingObject: public bf::Solid {
 		unsigned texture=UINT_MAX;
+		unsigned decalTexture=UINT_MAX;
 		glm::vec3 size={150.f,150.f,50.f};
 		glm::vec<2, int> divisions={600,600};
 		std::vector<std::vector<float> > heights;
@@ -27,8 +31,10 @@ namespace bf {
 		bf::DummySolid lines;
 		bf::DummySolid flatEnd, sphericEnd;
 		bool isLineShown=true;
-		std::map<unsigned, std::string> errors;
+		std::map<unsigned, std::bitset<4> > errors;
+		std::string printErrorLine(unsigned a=UINT_MAX) const;
 		float getHazardDepth(int i, int j);
+		bool isDownFlatMulling=false, isVerticalMulling=false;
 		//transform.position - position of end
 		int endSize=10;
 		float endHeight=30.f;
@@ -47,6 +53,7 @@ namespace bf {
 		void updateHeightMap(int beginX, int endX, int beginY, int endY);
 		void addError(MullingErrorType type);
 		void endAnimation();
+		glm::vec<4, int> setRadius(glm::vec3 pos);
 	public:
 		MullingObject();
 		~MullingObject() override = default;
@@ -56,10 +63,11 @@ namespace bf {
 		void ObjectGui() override;
 		[[nodiscard]] bool isMovable() const override;
 		[[nodiscard]] bool isIntersectable() const override;
-		void processNextInstantPoint();
+		glm::vec<4, int> processNextInstantPoint(float t0=.0f, float t1=1.f);
+		//beginX, endX, beginY, endY
 		bool loadFromFile(const std::string& path);
 		void update(float deltaTime);
-		void internalUpdate(float deltaTime);
+		//void internalUpdate(float deltaTime);
 
 	};
 

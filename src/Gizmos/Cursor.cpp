@@ -52,7 +52,7 @@ void bf::Cursor::initLines() {
 		lines[i].indices = {0u,1u};
 		lines[i].setBuffers();*/
 		std::vector vec = {.0f, .0f, .0f};
-		vec[i]=.1f;
+		vec[i]=10.f;
 		lines[i].vertices.emplace_back(.0f,.0f,.0f);
 		lines[i].vertices.emplace_back(vec[0],vec[1],vec[2]);
 		lines[i].indices = {0u,1u};

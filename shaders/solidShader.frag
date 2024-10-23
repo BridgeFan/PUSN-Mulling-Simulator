@@ -19,6 +19,7 @@ uniform float shininess;
 uniform vec2 divisions;
 uniform vec3 size; //size of whole fragment
 uniform sampler2D heightMapFrag;
+uniform sampler2D decalMap;
 
 vec3 heightMapVec(vec2 p) {
     float height = texture(heightMapFrag, p).r;
@@ -45,7 +46,8 @@ else {
         normal = normalize(cross(P2-P0,P3-P0));
     }
     vec3 norm = normalize(normal);
-    vec3 color = vertexColor.rgb;
+    //vec3 color = /*vertexColor.rgb*/decalMap.rgb;
+    vec3 color = texture(decalMap, texPos).rgb;
     
     // ambient
     vec3 ambient = light.ambient * color;

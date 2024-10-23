@@ -10,11 +10,16 @@
 #include "Shader/ShaderArray.h"
 #include "Util.h"
 #include <GL/glew.h>
-#include <fstream>
-#include <iostream>
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <bitset>
+#include <fstream>
 #include <glm/gtx/norm.hpp>
+#include <iostream>
+
+const std::array<std::string, 4> names = {" Too deep mulling", " Vertical mulling", " Down flat mulling", " Non-cutting edge"};
+//constexpr std::bitset<4> False4;
 
 namespace bf {
 	void MullingObject::draw(const ShaderArray &shaderArray) const {
@@ -26,9 +31,9 @@ namespace bf {
 			}
 			shaderArray.setColor(255u,127u,127u);
 			shader.setBool("isNormalUsed", true);
-			shader.setVec3("light.direction", -.2f,-1.f,-.3f);
+			shader.setVec3("light.direction", -.2f,-.3f,-1.f);
 			shader.setVec3("light.ambient", 0.2f, 0.2f, 0.2f);
-			shader.setVec3("light.diffuse", 0.5f, 0.5f, 0.5f);
+			shader.setVec3("light.diffuse", 0.6f, 0.6f, 0.6f);
 			shader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
 			shader.setFloat("shininess", 32.f);
 			flatEnd.drawTriangles(shaderArray);
@@ -43,6 +48,10 @@ namespace bf {
 			glActiveTexture(GL_TEXTURE0);
 			glBindTexture(GL_TEXTURE_2D, texture);
 		}
+		if(decalTexture<UINT_MAX) {
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_2D, decalTexture);
+		}
 		const auto& shader = shaderArray.getActiveShader();
 		shader.setVec3("color", 1.f,1.f,1.f);
 		shader.setVec3("light.direction", -.2f,-1.f,-.3f);
@@ -54,6 +63,7 @@ namespace bf {
 		shader.setFloat("shininess", 32.f);
 		shader.setInt("heightMap", 0);
 		shader.setInt("heightMapFrag", 0);
+		shader.setInt("decalMap", 1);
 		//function assumes set projection and view matrices
 		glBindVertexArray(VAO);
 		glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT,   // type
@@ -71,33 +81,32 @@ namespace bf {
 		glTextureSubImage2D(texture, 0, beginX, beginY, endX - beginX + 1, endY - beginY + 1, GL_RED, GL_FLOAT, data.data());
 	}
 	void MullingObject::addError(MullingErrorType type) {
-		if (errors.contains(id) && type == NonCuttingMulling)
+		if(!errors.contains(id))
+			errors[id] = False4;
+		if (errors[id][NonCuttingMulling] && type == NonCuttingMulling)
 			return;
-		std::string errorString;
-		switch (type) {
-			case DeepMulling:
-				errorString = "Too deep mulling";
-				break;
-			case VerticalMulling:
-				errorString = "Vertical mulling";
-				break;
-			case DownFlatMulling:
-				errorString = "Down flat-end mulling";
-				break;
-			case NonCuttingMulling:
-				errorString = "Non-cutting part of edge culling";
-				break;
-		}
-		if (errors.contains(id)) {
-			errors[id] += ", " + errorString;
-		} else {
-			errors[id] = errorString;
-		}
-		std::cerr << id + 1 << ": " << errorString << "\n";
+		errors[id][type]=true;
 	}
+
+	std::string MullingObject::printErrorLine(unsigned a) const {
+		unsigned Id = a==UINT_MAX ? id : a;
+		if(!errors.contains(Id))
+			return {};
+		std::string str = "Error in line "+std::to_string(Id)+":";
+		const auto& er = errors.at(Id);
+		for(int i=0;i<4;i++) {
+			if(er[i])
+				str += names[i];
+		}
+		if(a==UINT_MAX) {
+			std::cerr << str << "\n";
+		}
+		return str;
+	}
+
 	void MullingObject::endAnimation() {
-		isInstantProcessed=false;
-		isRunning=false;
+		isInstantProcessed = false;
+		isRunning = false;
 		points.clear();
 		lines.vertices.clear();
 		lines.indices.clear();
@@ -105,16 +114,90 @@ namespace bf {
 		if (!errors.empty())
 			ImGui::OpenPopup("Error menu");
 	}
-
+	glm::vec<4, int> MullingObject::setRadius(glm::vec3 pos) {
+		//update heights
+		float endSize2_25 = static_cast<float>(endSize*endSize)*0.25f;
+		float dX = divisions.x/size.x; //div/mm
+		float dY = divisions.y/size.y; //div/mm
+		glm::vec2 divisionSize = {dX, dY};
+		glm::vec2 pointIndices={(pos.x+size.x*.5f)*divisionSize.x, (pos.y+size.y*.5f)*divisionSize.y};
+		glm::vec2 endDivSize={endSize*divisionSize.x*.5f, endSize*divisionSize.y*.5f}; //div
+		int beginX = static_cast<int>(std::max(pointIndices.x-endDivSize.x,0.f));
+		int beginY = static_cast<int>(std::max(pointIndices.y-endDivSize.y,0.f));
+		int endX = std::min(static_cast<int>(pointIndices.x+endDivSize.x),divisions.x-1);
+		int endY = std::min(static_cast<int>(pointIndices.y+endDivSize.y),divisions.y-1);
+		for(int j=beginY;j<=endY; j++) {
+			for(int i=beginX;i<=endX; i++) {
+				auto hazardDepth = getHazardDepth(i,j);
+				float difX = std::abs(pointIndices.x-i); //div
+				float difY = std::abs(pointIndices.y-j); //div
+				float sqrDist = difX*difX/(dX*dX)+difY*difY/(dY*dY); //mm^2
+				if(sqrDist>endSize2_25) continue;
+				if(isFlat) {
+					if(pos.z < hazardDepth && !errors.contains(id)) {
+						addError(NonCuttingMulling);
+					}
+					if(heights[j][i]*size.z>pos.z) {
+						if(isDownFlatMulling)
+							addError(DownFlatMulling);
+						if(isVerticalMulling)
+							addError(VerticalMulling);
+						heights[j][i]=pos.z/size.z;
+					}
+				}
+				else {
+					float s=pos.z+endSize*0.5f-std::sqrt(endSize2_25-sqrDist);
+					if(s < hazardDepth && !errors.contains(id)) {
+						addError(NonCuttingMulling);
+					}
+					if(heights[j][i]*size.z>s) {
+						if(isDownFlatMulling)
+							addError(DownFlatMulling);
+						if(isVerticalMulling)
+							addError(VerticalMulling);
+						heights[j][i]=s/size.z;
+					}
+				}
+			}
+		}
+		return {beginX, endX, beginY, endY};
+	}
 	void MullingObject::update(float deltaTime) {
 		if(!isRunning || points.size()<2) return;
-		for(int i=0;i<stepsPerFrame;i++) {
+		float dist = glm::distance(points[id], points[id+1]);
+		float newPhase = phase+simSpeed*deltaTime/dist;
+		glm::vec<4, int> v = processNextInstantPoint(phase, std::min(newPhase,1.f));
+		/*for(int i=0;i<stepsPerFrame;i++) {
 			internalUpdate(deltaTime/static_cast<float>(stepsPerFrame));
+		}*/
+		//update texture
+		updateHeightMap(v[0], v[1], v[2], v[3]);
+		//update phase
+		phase=newPhase;
+		while(phase>1.f-1e-6f) {
+			//already set to next id by processNextInstantPoint function
+			if(id+1>=points.size()) {
+				endAnimation();
+				break;
+			}
+			else {
+				checkMullingErrors();
+				glm::vec<4, int> v = processNextInstantPoint(0.f, std::min(phase,1.f));
+				updateHeightMap(v[0], v[1], v[2], v[3]);
+				phase-=1.f;
+			}
 		}
+		//update visible position
+		if(isFlat)
+			flatEnd.setPosition(lerp(points[id], points[id+1], phase));
+		else {
+			auto addVec = glm::vec3(0.f,0.f,static_cast<float>(endSize)*.5f);
+			flatEnd.setPosition(lerp(points[id], points[id+1], phase)+addVec);
+		}
+		sphericEnd.setPosition(lerp(points[id], points[id+1], phase));
 	}
 
-	void MullingObject::internalUpdate(float deltaTime) {
-		if(!isRunning || points.size()<2) return;
+	/*void MullingObject::internalUpdate(float deltaTime) {
 		float dist = glm::distance(points[id], points[id+1]);
 		//update heights
 		float endSize2_25 = static_cast<float>(endSize*endSize)*0.25f;
@@ -139,42 +222,30 @@ namespace bf {
 					if(pos.z < hazardDepth && !errors.contains(id)) {
 						addError(NonCuttingMulling);
 					}
-					if(heights[j][i]*size.z>pos.z)
+					if(heights[j][i]*size.z>pos.z) {
+						if(isDownFlatMulling)
+							addError(DownFlatMulling);
+						if(isVerticalMulling)
+							addError(VerticalMulling);
 						heights[j][i]=pos.z/size.z;
+					}
 				}
 				else {
 					float s=pos.z+endSize*0.5f-std::sqrt(endSize2_25-sqrDist);
 					if(s < hazardDepth && !errors.contains(id)) {
 						addError(NonCuttingMulling);
 					}
-					if(heights[j][i]*size.z>s)
+					if(heights[j][i]*size.z>s) {
+						if(isDownFlatMulling)
+							addError(DownFlatMulling);
+						if(isVerticalMulling)
+							addError(VerticalMulling);
 						heights[j][i]=s/size.z;
+					}
 				}
 			}
 		}
-		//update texture
-		updateHeightMap(beginX, endX, beginY, endY);
-		//update phase
-		phase+=simSpeed*deltaTime/dist;
-		if(phase>1) {
-			id++;
-			if(id+1>=points.size()) {
-				endAnimation();
-			}
-			else {
-				checkMullingErrors();
-				phase-=1.f;
-			}
-		}
-		//update visible position
-		if(isFlat)
-			flatEnd.setPosition(lerp(points[id], points[id+1], phase));
-		else {
-			auto addVec = glm::vec3(0.f,0.f,static_cast<float>(endSize)*.5f);
-			flatEnd.setPosition(lerp(points[id], points[id+1], phase)+addVec);
-		}
-		sphericEnd.setPosition(lerp(points[id], points[id+1], phase));
-	}
+	}*/
 
 
 	void MullingObject::onMergePoints(int, int) {	}
@@ -187,7 +258,8 @@ namespace bf {
 			std::string buf = std::to_string(id)+"/"+std::to_string(points.size());
 			float part = static_cast<float>(id)/static_cast<float>(points.size());
 			ImGui::ProgressBar(part, ImVec2(0.f, 0.f), buf.c_str());
-			auto endId=std::min<unsigned>(id+instantUpdateStep, points.size()-1);
+			unsigned step = std::clamp<unsigned>(points.size()/100u, instantUpdateStep, instantUpdateStep*100);
+			auto endId=std::min<unsigned>(id+step, points.size()-1);
 			while(id<endId) {
 				checkMullingErrors();
 				processNextInstantPoint();
@@ -200,9 +272,12 @@ namespace bf {
 		if(isInstantProcessed)
 			return;
 		if (ImGui::BeginPopupModal("Error menu", nullptr, ImGuiWindowFlags_MenuBar)) {
-			ImGui::Text("Found %ld errors", errors.size());
+			if(errors.size()==1)
+				ImGui::Text("Found 1 error");
+			else
+				ImGui::Text("Found %d errors", static_cast<int>(errors.size()));
 			for(auto const& [ID, val]: errors) {
-				ImGui::Text("Part %d: %s", ID, val.c_str());
+				ImGui::Text("%s", printErrorLine(ID).c_str());
 			}
 			if(ImGui::Button("OK")) {
 				ImGui::CloseCurrentPopup();
@@ -286,8 +361,8 @@ namespace bf {
 		flatEnd.indices.reserve(12 * 32);
 		flatEnd.vertices.emplace_back(bf::ZPlus*1000.f, glm::vec2(.0f), bf::ZPlus);
 		flatEnd.vertices.emplace_back(glm::vec3(.0f), glm::vec2(.0f), bf::ZMinus);
-		for (int i = 0; i < 32; i++) {
-			float u = i * std::numbers::pi / 15.f; //[0,2*pi]
+		for (unsigned i = 0; i < 32; i++) {
+			float u = static_cast<float>(i) * std::numbers::pi / 15.f; //[0,2*pi]
 			glm::vec3 pos1 = {std::cos(u)*.5f, std::sin(u)*.5f, 0.f};
 			glm::vec3 pos2 = pos1+1000.f*ZPlus;
 			flatEnd.vertices.emplace_back(pos1, glm::vec2(.0f), bf::ZMinus);
@@ -328,8 +403,8 @@ namespace bf {
 		float ret=std::numeric_limits<float>::min();
 		for(int i=std::max(x-1,0);i<=std::min(x+1,divisions.x-1);i++)
 			for(int j=std::max(y-1,0);j<=std::min(y+1,divisions.y-1);j++)
-				ret=std::max(heights[j][i],ret);
-		return ret-endHeight/size.z;
+				ret=std::max(heights[j][i]*size.z,ret);
+		return ret-endHeight;
 	}
 
 	void MullingObject::updateVertices(bool isBufferResized) {
@@ -390,12 +465,19 @@ namespace bf {
 		return lerp(P1,P2,getPartClosestPointFromLine(p,P1,P2));
 	}
 
-	void MullingObject::processNextInstantPoint() {
+	glm::vec<4, int> MullingObject::processNextInstantPoint(float t0, float t1) {
 		if(almostEqual(points[id].x, points[id+1].x) && almostEqual(points[id].y, points[id+1].y)) {
 			//vertical line
-			//TODO: vertical line down is last case
-			id++;
-			return;
+			glm::vec3 P0 = lerp(points[id],points[id+1], t0);
+			glm::vec3 P1 = lerp(points[id],points[id+1], t1);
+			glm::vec<4, int> ret;
+			if(P0.z > P1.z)
+				ret = setRadius(P1);
+			else
+				ret = setRadius(P0);
+			if(t1>=1.f-1e-6f)
+				id++;
+			return ret;
 		}
 		//update heights
 		//auto pos = lerp(points[id], points[id+1], phase);
@@ -403,15 +485,16 @@ namespace bf {
 		float dY = divisions.y/size.y;
 		float endSize2_25 = static_cast<float>(endSize*endSize)*0.25f;
 		glm::vec2 divisionSize = {dX, dY};
-		glm::vec<2,int> pointIndices0={(points[id].x+size.x*.5f)*divisionSize.x, (points[id].y+size.y*.5f)*divisionSize.y};
-		glm::vec<2,int> pointIndices1={(points[id+1].x+size.x*.5f)*divisionSize.x, (points[id+1].y+size.y*.5f)*divisionSize.y};
+		glm::vec3 P0 = lerp(points[id],points[id+1], t0);
+		glm::vec3 P1 = lerp(points[id],points[id+1], t1);
+		glm::vec<2,int> pointIndices0={(P0.x+size.x*.5f)*divisionSize.x, (P0.y+size.y*.5f)*divisionSize.y};
+		glm::vec<2,int> pointIndices1={(P1.x+size.x*.5f)*divisionSize.x, (P1.y+size.y*.5f)*divisionSize.y};
 		glm::vec<2,int> endDivSize={endSize*divisionSize.x*.5f, endSize*divisionSize.y*.5f};
 		int beginX = std::max(std::min(pointIndices0.x,pointIndices1.x)-endDivSize.x,0);
 		int beginY = std::max(std::min(pointIndices0.y,pointIndices1.y)-endDivSize.y,0);
 		int endX = std::min(std::max(pointIndices0.x,pointIndices1.x)+endDivSize.x,divisions.x-1);
 		int endY = std::min(std::max(pointIndices0.y,pointIndices1.y)+endDivSize.y,divisions.y-1);
 		auto pathLength = glm::distance(glm::vec2(points[id+1]), glm::vec2(points[id]));
-		auto v = glm::vec2(points[id+1]-points[id])/pathLength;
 		float H = (points[id+1].z-points[id].z)/pathLength;
 		//TODO - check, vertical line
 		for(int j=beginY;j<=endY; j++) {
@@ -430,25 +513,32 @@ namespace bf {
 				float z;
 				if(isFlat) {
 					float diff = std::sqrt(endSize2_25-L2);
-					float t0 = std::max(0.f, t-diff/pathLength);
-					float t1 = std::min(1.f, t+diff/pathLength);
-					z = std::min(lerp(points[id], points[id+1], t0).z, lerp(points[id], points[id+1], t1).z);
+					float f0 = std::max(t0, t-diff/pathLength);
+					float f1 = std::min(t1, t+diff/pathLength);
+					z = std::min(lerp(points[id], points[id+1], f0).z, lerp(points[id], points[id+1], f1).z);
 				}
 				else {
 					float x = std::sqrt(H*H / (1+H*H) * (endSize2_25-L2)); //move on x axis
-					float t0 = std::max(0.f, t-x/pathLength);
-					float t1 = std::min(1.f, t+x/pathLength);
-					z = std::min(lerp(points[id], points[id+1], t0).z, lerp(points[id], points[id+1], t1).z);
+					float f0 = std::max(t0, t-x/pathLength);
+					float f1 = std::min(t1, t+x/pathLength);
+					z = std::min(lerp(points[id], points[id+1], f0).z, lerp(points[id], points[id+1], f1).z);
 					z += endSize*.5f-std::sqrt(endSize2_25-L2-x*x);
 				}
-				if(z < hazardDepth && !errors.contains(id)) {
+				if(z < hazardDepth) {
 					addError(NonCuttingMulling);
 				}
-				if(heights[j][i]*size.z>z)
+				if(heights[j][i]*size.z>z) {
+					if(isDownFlatMulling)
+						addError(DownFlatMulling);
+					if(isVerticalMulling)
+						addError(VerticalMulling);
 					heights[j][i] = z/size.z;
+				}
 			}
 		}
-		id++;
+		if(t1>=1.f-1e-6f)
+			id++;
+		return {beginX, endX, beginY, endY};
 	}
 
 	bool MullingObject::loadFromFile(const std::string& path) {
@@ -521,6 +611,24 @@ namespace bf {
 		return false;
 	}
 	void MullingObject::initTexture(bool isResized) {
+		if(decalTexture==UINT_MAX) {
+			glGenTextures(1, &decalTexture);
+			glBindTexture(GL_TEXTURE_2D, decalTexture);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			int width, height, nrChannels;
+			unsigned char *data = stbi_load("decal.png", &width, &height, &nrChannels, 0);
+			if(data) {
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+				glGenerateMipmap(GL_TEXTURE_2D);
+			}
+			else {
+				std::cerr << "Failed to load texture decal.png\n";
+			}
+			stbi_image_free(data);
+		}
 		if(texture==UINT_MAX) {
 			glGenTextures(1, &texture);
 			glBindTexture(GL_TEXTURE_2D, texture);
@@ -549,16 +657,17 @@ namespace bf {
 			addError(DeepMulling);
 			ret=true;
 		}
+		isDownFlatMulling = isVerticalMulling = false;
 		if(isFlat) {
 			if(points[id + 1].z<points[id].z) {
-				addError(DownFlatMulling);
+				isDownFlatMulling = true;
 				ret=true;
 			}
 		}
 		else {
 			if(almostEqual(points[id].x, points[id+1].x) && almostEqual(points[id].y, points[id+1].y) &&
 			points[id+1].z<points[id].z) {
-				addError(VerticalMulling);
+				isVerticalMulling = true;
 				ret=true;
 			}
 		}
